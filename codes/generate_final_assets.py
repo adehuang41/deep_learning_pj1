@@ -99,7 +99,7 @@ def plot_robustness_curves(rows, save_path):
         return
     fig, axes = plt.subplots(1, 3, figsize=(12, 4))
     for ax, ptype in zip(axes, ["noise", "translation", "rotation"]):
-        for model_name in ["CNN-clean", "CNN-AugScratch-target", "CNN-RGFT-target"]:
+        for model_name in ["CNN-clean", "CNN-AugScratch-target", "CNN-AugScratch-mixed", "CNN-RGFT-target"]:
             sub = [row for row in rows if row["perturbation_type"] == ptype and row["model_name"] == model_name]
             sub = sorted(sub, key=lambda r: r["severity"])
             ax.plot([r["severity"] for r in sub], [r["accuracy"] for r in sub], marker="o", label=model_name)
@@ -117,7 +117,7 @@ def plot_dense_curve(rows, target, save_path):
     if plt is None:
         return
     fig, ax = plt.subplots(figsize=(6, 4))
-    for model_name in ["CNN-clean", "CNN-AugScratch-target", "CNN-RGFT-target"]:
+    for model_name in ["CNN-clean", "CNN-AugScratch-target", "CNN-AugScratch-mixed", "CNN-RGFT-target"]:
         sub = [row for row in rows if row["model_name"] == model_name]
         sub = sorted(sub, key=lambda r: r["severity"])
         ax.plot([r["severity"] for r in sub], [r["accuracy"] for r in sub], marker="o", label=model_name)
@@ -136,20 +136,22 @@ def plot_example_grid(example_indices, clean_images, perturbed_images, preds_a, 
         return
     rng = np.random.default_rng(2026)
     chosen = rng.choice(example_indices, size=min(max_items, len(example_indices)), replace=False)
-    fig, axes = plt.subplots(len(chosen), 2, figsize=(4, 2 * len(chosen)))
-    if len(chosen) == 1:
-        axes = np.array([axes])
-    for row_idx, sample_idx in enumerate(chosen):
-        axes[row_idx, 0].imshow(clean_images[sample_idx, 0], cmap="gray")
-        axes[row_idx, 0].set_title(f"Clean y={labels[sample_idx]}")
-        axes[row_idx, 1].imshow(perturbed_images[sample_idx, 0], cmap="gray")
-        axes[row_idx, 1].set_title(f"A:{preds_a[sample_idx]} B:{preds_b[sample_idx]}")
-        axes[row_idx, 0].set_xticks([])
-        axes[row_idx, 0].set_yticks([])
-        axes[row_idx, 1].set_xticks([])
-        axes[row_idx, 1].set_yticks([])
-    fig.suptitle(title)
-    fig.tight_layout()
+    chosen = sorted(int(idx) for idx in chosen)
+    fig, axes = plt.subplots(2, 5, figsize=(14, 5.8))
+    fig.subplots_adjust(left=0.03, right=0.99, top=0.84, bottom=0.08, wspace=0.16, hspace=0.42)
+    fig.suptitle(title, fontsize=15)
+    for ax, sample_idx in zip(axes.flat, chosen):
+        combo = np.concatenate([clean_images[sample_idx, 0], perturbed_images[sample_idx, 0]], axis=1)
+        ax.imshow(combo, cmap="gray", vmin=0.0, vmax=1.0)
+        ax.set_title(f"y={int(labels[sample_idx])}, {int(preds_a[sample_idx])}->{int(preds_b[sample_idx])}", fontsize=10, pad=4)
+        ax.text(0.5, -0.10, "clean | pert.", transform=ax.transAxes, ha="center", va="top", fontsize=8)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.6)
+            spine.set_edgecolor("#666666")
+    for ax in axes.flat[len(chosen):]:
+        ax.axis("off")
     fig.savefig(save_path, dpi=200)
     plt.close(fig)
 
@@ -182,6 +184,7 @@ def generate_part_c_main_assets():
         "MLP-clean": ("mlp", load_model_from_checkpoint("mlp", "full_mlp_clean_sgd_v1/checkpoints/mlp_clean_best_model.pickle")),
         "CNN-clean": ("cnn", load_model_from_checkpoint("cnn", "full_cnn_clean_sgd_v1/checkpoints/cnn_clean_best_model.pickle")),
         "CNN-AugScratch-target": ("cnn", load_model_from_checkpoint("cnn", "full_cnn_augscratch_target_v1/checkpoints/cnn_augscratch_best_model.pickle")),
+        "CNN-AugScratch-mixed": ("cnn", load_model_from_checkpoint("cnn", "full_cnn_augscratch_mixed_v1/checkpoints/cnn_augscratch_mixed_best_model.pickle")),
         "CNN-RGFT-target": ("cnn", load_model_from_checkpoint("cnn", "full_cnn_rgft_target_v1/checkpoints/cnn_rgft_best_model.pickle")),
     }
     loss_fns = {name: nn.op.MultiCrossEntropyLoss(model=model, max_classes=10) for name, (_, model) in models.items()}
@@ -263,7 +266,6 @@ def generate_part_c_main_assets():
     plot_dense_curve(dense_rows, target, os.path.join(part_c_dir, "target_only_dense_curve.png"))
 
     clean_preds = np.argmax(target_metrics["CNN-clean"]["logits"], axis=1)
-    aug_preds = np.argmax(target_metrics["CNN-AugScratch-target"]["logits"], axis=1)
     rgft_preds = np.argmax(target_metrics["CNN-RGFT-target"]["logits"], axis=1)
 
     clean_matrix = confusion_matrix_from_logits(target_metrics["CNN-clean"]["logits"], test_labels)
@@ -304,6 +306,13 @@ def generate_part_c_main_assets():
                 "epochs": 30,
                 "extra_epochs": 30,
                 "time_sec": total_epoch_time("full_cnn_augscratch_target_v1/cnn_augscratch/history.csv"),
+            },
+            {
+                "model_name": "CNN-AugScratch-mixed",
+                "source_checkpoint": "random_init",
+                "epochs": 30,
+                "extra_epochs": 30,
+                "time_sec": total_epoch_time("full_cnn_augscratch_mixed_v1/cnn_augscratch_mixed/history.csv"),
             },
             {
                 "model_name": "CNN-RGFT-target",

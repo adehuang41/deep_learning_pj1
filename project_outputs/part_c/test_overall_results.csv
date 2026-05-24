@@ -14,6 +14,11 @@ CNN-AugScratch-target,target,translation,3,0.9568,0.024700000000000055
 CNN-AugScratch-target,same_type_neighbor,translation,2,0.9728,0.008700000000000041
 CNN-AugScratch-target,non_target_1,noise,0.1,0.9524,0.029100000000000015
 CNN-AugScratch-target,non_target_2,rotation,10,0.9651,0.01640000000000008
+CNN-AugScratch-mixed,clean,clean,0,0.9882,0.0
+CNN-AugScratch-mixed,target,translation,3,0.9527,0.035499999999999976
+CNN-AugScratch-mixed,same_type_neighbor,translation,2,0.9749,0.013299999999999979
+CNN-AugScratch-mixed,non_target_1,noise,0.1,0.9871,0.0010999999999999899
+CNN-AugScratch-mixed,non_target_2,rotation,10,0.9818,0.006399999999999961
 CNN-RGFT-target,clean,clean,0,0.979,0.0
 CNN-RGFT-target,target,translation,3,0.9266,0.0524
 CNN-RGFT-target,same_type_neighbor,translation,2,0.959,0.020000000000000018

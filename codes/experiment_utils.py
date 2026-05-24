@@ -285,6 +285,46 @@ def make_mixed_batch(images, perturbation, clean_ratio, rng):
     return mixed
 
 
+def make_family_mixed_batch(images, perturbation_grid, clean_ratio, rng):
+    if not perturbation_grid:
+        return images.copy()
+
+    family_to_severities = {}
+    for perturbation in perturbation_grid:
+        family_to_severities.setdefault(perturbation['type'], []).append(perturbation['severity'])
+    families = sorted(family_to_severities.keys())
+
+    batch_size = images.shape[0]
+    num_clean = int(round(batch_size * clean_ratio))
+    indices = rng.permutation(batch_size)
+    clean_indices = indices[:num_clean]
+    perturbed_indices = indices[num_clean:]
+
+    mixed = images.copy()
+    if perturbed_indices.size > 0:
+        sampled_families = rng.integers(0, len(families), size=perturbed_indices.shape[0])
+        for family_idx, family_name in enumerate(families):
+            local_mask = sampled_families == family_idx
+            if not np.any(local_mask):
+                continue
+            severities = family_to_severities[family_name]
+            local_indices = perturbed_indices[local_mask]
+            sampled_severity_ids = rng.integers(0, len(severities), size=local_indices.shape[0])
+            for severity_id, severity in enumerate(severities):
+                severity_mask = sampled_severity_ids == severity_id
+                if not np.any(severity_mask):
+                    continue
+                severity_indices = local_indices[severity_mask]
+                mixed[severity_indices] = apply_perturbation(
+                    images[severity_indices],
+                    {'type': family_name, 'severity': severity},
+                    rng,
+                )
+    if clean_indices.size > 0:
+        mixed[clean_indices] = images[clean_indices]
+    return mixed
+
+
 def iterate_minibatches(images, labels, batch_size, rng, drop_last=False):
     indices = rng.permutation(images.shape[0])
     for start in range(0, images.shape[0], batch_size):
@@ -321,6 +361,12 @@ def _target_selector(metrics, best_state):
     return is_better, score, 'target_val_acc'
 
 
+def _mixed_score_selector(metrics, best_state):
+    score = metrics['target_val_acc']
+    is_better = best_state is None or score > best_state['score']
+    return is_better, score, 'mixed_val_score'
+
+
 def _rgft_selector(metrics, best_state, baseline_clean_val_acc, clean_drop_limit):
     clean_drop = baseline_clean_val_acc - metrics['clean_val_acc']
     satisfies = clean_drop <= clean_drop_limit
@@ -354,6 +400,8 @@ def train_model(
     checkpoint_path,
     selection_mode='clean',
     target_perturbation=None,
+    mixed_train_grid=None,
+    selection_score_perturbations=None,
     clean_mix_ratio=0.5,
     baseline_clean_val_acc=None,
     clean_drop_limit=0.01,
@@ -379,7 +427,9 @@ def train_model(
 
         for batch_images, batch_labels in iterate_minibatches(train_images, train_labels, batch_size, rng, drop_last=drop_last):
             train_batch = batch_images
-            if target_perturbation is not None:
+            if mixed_train_grid is not None:
+                train_batch = make_family_mixed_batch(batch_images, mixed_train_grid, clean_mix_ratio, rng)
+            elif target_perturbation is not None:
                 train_batch = make_mixed_batch(batch_images, target_perturbation, clean_mix_ratio, rng)
 
             logits = model(format_inputs(train_batch, model_kind))
@@ -392,7 +442,15 @@ def train_model(
 
         clean_val_metrics = evaluate_model(model, model_kind, valid_images, valid_labels, loss_fn)
         target_val_acc = ''
-        if target_perturbation is not None:
+        if selection_score_perturbations is not None:
+            selected_accs = [clean_val_metrics['acc']]
+            for perturbation in selection_score_perturbations:
+                fixed_rng = np.random.default_rng(eval_seed)
+                perturbed_valid = apply_perturbation(valid_images, perturbation, fixed_rng)
+                selected_metrics = evaluate_model(model, model_kind, perturbed_valid, valid_labels, loss_fn)
+                selected_accs.append(selected_metrics['acc'])
+            target_val_acc = float(np.mean(selected_accs))
+        elif target_perturbation is not None:
             fixed_rng = np.random.default_rng(eval_seed)
             perturbed_valid = apply_perturbation(valid_images, target_perturbation, fixed_rng)
             target_val_metrics = evaluate_model(model, model_kind, perturbed_valid, valid_labels, loss_fn)
@@ -415,6 +473,8 @@ def train_model(
             is_better, score, reason = _clean_selector(epoch_metrics, best_state)
         elif selection_mode == 'target':
             is_better, score, reason = _target_selector(epoch_metrics, best_state)
+        elif selection_mode == 'mixed_score':
+            is_better, score, reason = _mixed_score_selector(epoch_metrics, best_state)
         elif selection_mode == 'rgft':
             is_better, score, reason = _rgft_selector(epoch_metrics, best_state, baseline_clean_val_acc, clean_drop_limit)
         else:
