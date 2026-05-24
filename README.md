@@ -59,6 +59,8 @@
   - 加载 checkpoint 后在测试集或指定扰动下评估模型
 - `codes/run_project_pipeline.py`
   - 生成主线 Part B / Part C 的核心结果与图表
+- `codes/run_augscratch_mixed.py`
+  - 从头训练 `CNN-AugScratch-mixed`
 - `codes/run_mixedft.py`
   - 从 `CNN-clean` checkpoint 出发进行 mixed fine-tuning
 - `codes/generate_final_assets.py`
